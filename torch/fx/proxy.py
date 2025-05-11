@@ -243,43 +243,16 @@ class TracerBase:
             proxy = proxy_factory_fn(node)
 
         if self.record_stack_traces and not proxy.node.stack_trace:
-            proxy.node.stack_trace = "".join(CapturedTraceback.extract().format())
-
+            full_tb = ''.join(CapturedTraceback.extract().format())
+            proxy.node.stack_trace = self._find_user_frame(full_tb)
         return proxy
 
-    def _find_user_frame(self):
-        """
-        Find the Python stack frame executing the user code during
-        symbolic tracing.
-        """
-        # We have to do a little dance here. Basically, walk up the callstack and
-        # record the first frame not in the pytorch source. This is the frame executing
-        # the user code during tracing.
-        frame = inspect.currentframe()
-
-        pt_files = [
-            "torch/fx/proxy.py",
-            "torch/fx/_symbolic_trace.py",
-            "torch/fx/experimental/proxy_tensor.py",
-            "torch/_ops.py",
-            "torch/_tensor.py",
-            "torch/utils/_python_dispatch.py",
-            "torch/_prims_common/wrappers.py",
-            "torch/_refs/__init__.py",
-            "torch/_refs/nn/functional/__init__.py",
-            "torch/utils/_stats.py",
-        ]
-        while frame:
-            frame = frame.f_back
-            if frame and all(
-                not frame.f_code.co_filename.endswith(file) for file in pt_files
-            ):
-                break
-
-        if not frame:
-            return None
-
-        return frame
+    # helper to strip internal FX frames so only user code remains
+    def _find_user_frame(self, stack_trace: str) -> str:
+        lines = stack_trace.rstrip().split('\n')
+        while len(lines) >= 2 and 'torch/fx/' in lines[-2]:
+            lines = lines[:-2]   # drop one internal frame (file + code line)
+        return '\n'.join(lines)
 
     @compatibility(is_backward_compatible=True)
     def create_arg(self, a: Any) -> Argument:

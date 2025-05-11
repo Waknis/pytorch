@@ -4990,3 +4990,27 @@ if HAS_TORCHVISION:
 
 if __name__ == "__main__":
     run_tests()
+
+class TestFXStackTrace(JitTestCase):
+    def test_tracer_stack_traces_contains_user_code(self):
+        class M1(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(1, 1)
+            def forward(self, x):
+                return x + self.linear(x)
+
+        class M2(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.m1 = M1()
+            def forward(self, x):
+                return x + self.m1(x)
+
+        tracer = torch.fx.Tracer()
+        tracer.record_stack_traces = True
+        graph = tracer.trace(M2())
+        gm = torch.fx.GraphModule(M2(), graph)
+        txt = gm.print_readable()
+        assert "code: return x + self.linear(x)" in txt
+        assert "code: return x + self.m1(x)" in txt
